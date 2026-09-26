@@ -1,0 +1,53 @@
+# Node & React
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.npm/
+
+# Python & Backend
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/.pytest_cache/
+backend/venv/
+backend/env/
+backend/.env
+backend/.venv/
+
+# PDF Uploads and Local Storage
+documents/*.pdf
+documents/*.doc
+documents/*.docx
+!documents/.gitkeep
+
+# Local Vector Databases / Indexes
+backend/vector_store/
+backend/*.faiss
+backend/*.index
+backend/*.pkl
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS-specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
