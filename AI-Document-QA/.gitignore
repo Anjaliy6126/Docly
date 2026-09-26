@@ -20,6 +20,8 @@ documents/*.pdf
 documents/*.doc
 documents/*.docx
 !documents/.gitkeep
+backend/documents/*.pdf
+!backend/documents/.gitkeep
 
 # Local Vector Databases / Indexes
 backend/vector_store/
