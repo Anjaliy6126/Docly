@@ -1,29 +1,24 @@
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from dotenv import load_dotenv
+from app.core.config import settings
 
-# Load environment variables (if any)
-load_dotenv()
+if not settings.DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set. Please configure .env")
 
-# Use DATABASE_URL from .env or fallback to a local SQLite db for initial testing
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./test.db")
+# create_engine establishes the connection pool to the database
+engine = create_engine(settings.DATABASE_URL)
 
-# For SQLite, check_same_thread=False is needed. For Postgres, connect_args is empty.
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args
-)
-
+# SessionLocal is a factory for creating database sessions (transactions)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Base class for all our models (User, Document, etc.) to inherit from
 Base = declarative_base()
 
+# Dependency to get a database session for each incoming request
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
+        # Closes the session and returns the connection to the pool after the request finishes
         db.close()

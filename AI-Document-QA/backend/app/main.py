@@ -1,10 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.database import get_db
 
 app = FastAPI(
-    title="AI Document Q&A System API",
-    description="Backend API for the RAG-based document assistant.",
-    version="0.1.0"
+    title=settings.PROJECT_NAME,
+    version=settings.PROJECT_VERSION,
+    description="Backend API for the RAG-based document assistant."
 )
 
 # CORS Middleware setup to allow frontend to communicate with backend
@@ -16,6 +21,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the AI Document Q&A System API"}
+@app.get("/health")
+def health_check():
+    """Simple health check endpoint to verify the API is running."""
+    return {"status": "ok", "message": "Backend is running"}
+
+@app.get("/health/db")
+def health_check_db(db: Session = Depends(get_db)):
+    """Check if the PostgreSQL database connection is working."""
+    try:
+        # Execute a simple SELECT 1 query
+        result = db.execute(text("SELECT 1")).scalar()
+        if result == 1:
+            return {"status": "ok", "message": "Database connection is successful!"}
+        else:
+            raise HTTPException(status_code=500, detail="Database returned unexpected result.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
