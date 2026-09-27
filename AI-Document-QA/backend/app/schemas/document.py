@@ -23,3 +23,9 @@ class DocumentTextResponse(BaseModel):
     document_id: int
     filename: str
     pages: list[DocumentTextPage]
+
+class DocumentChunk(BaseModel):
+    document_id: int
+    page_number: int
+    chunk_index: int
+    text: str
