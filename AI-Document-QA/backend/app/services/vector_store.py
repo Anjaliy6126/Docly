@@ -1,6 +1,6 @@
 import numpy as np
 import faiss
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # The embedding model (all-MiniLM-L6-v2 in embedding_service.py) produces
 # fixed-size dense vectors. This constant must match that output exactly,
@@ -92,11 +92,21 @@ class FAISSVectorStore:
                 "text": chunk["text"],
             })
     
-    def search(self, query_embedding: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query_embedding: List[float],
+        top_k: int = 5,
+        document_ids: Optional[List[int]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Searches the index for the top_k most similar vectors to the query.
         Returns matched chunks with their metadata and similarity scores,
         ordered by score (highest first).
+
+        document_ids filtering:
+        - None: search all indexed chunks (original behavior, unchanged).
+        - [1]: only chunks belonging to document 1.
+        - [1, 2]: chunks belonging to documents 1 and 2.
         """
         if not isinstance(query_embedding, list) or not query_embedding:
             raise ValueError("query_embedding must be a non-empty list.")
@@ -107,10 +117,18 @@ class FAISSVectorStore:
             )
         if not isinstance(top_k, int) or top_k <= 0:
             raise ValueError("top_k must be a positive integer.")
-        
+        if document_ids is not None:
+            if not isinstance(document_ids, list) or not all(isinstance(d, int) for d in document_ids):
+                raise ValueError("document_ids must be a list of integers or None.")
+
         if self.index.ntotal == 0:
             raise ValueError("Vector store is empty.")
-        
+
+        # document_ids=[] means "no documents are allowed", so no result can
+        # ever match; return early instead of running a pointless search.
+        if document_ids is not None and not document_ids:
+            return []
+
         # Why metadata is stored separately:
         # FAISS only handles vectors; it cannot store document_id,
         # page_number, chunk_index, or text. Keeping metadata in a parallel
@@ -118,22 +136,36 @@ class FAISSVectorStore:
         # results by index, without bloating the index itself.
         # The FAISS position returned by search() maps directly to
         # self.metadata[position], so vector i and metadata i stay synchronized.
-        top_k = min(top_k, self.index.ntotal)
-        
+
         query = np.array([query_embedding], dtype=np.float32)
         faiss.normalize_L2(query)
-        
-        scores, positions = self.index.search(query, top_k)
-        
+
+        if document_ids is None:
+            # Original behavior: let FAISS return only the top_k best matches.
+            candidate_k = min(top_k, self.index.ntotal)
+        else:
+            # When filtering by document, the top_k global matches might all
+            # belong to other documents. IndexFlatIP is exact and this index
+            # is small, so we simply rank ALL vectors and filter afterwards —
+            # this guarantees correct filtered results with no heuristics.
+            candidate_k = self.index.ntotal
+
+        scores, positions = self.index.search(query, candidate_k)
+
+        allowed = None if document_ids is None else set(document_ids)
         results = []
         for score, position in zip(scores[0], positions[0]):
             if position == -1:
                 continue
+            if allowed is not None and self.metadata[position]["document_id"] not in allowed:
+                continue
             result = dict(self.metadata[position])
             result["score"] = float(score)
             results.append(result)
-        
+            if document_ids is None and len(results) >= top_k:
+                break
+
         # IndexFlatIP returns results sorted by descending score already, but
         # sorting here makes the ordering contract explicit and guaranteed.
         results.sort(key=lambda r: r["score"], reverse=True)
-        return results
+        return results[:top_k]
