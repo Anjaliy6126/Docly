@@ -129,6 +129,37 @@ def build_rag_prompt(question: str, context: str) -> str:
         "ANSWER:"
     )
 
+def answer_question_from_store(
+    question: str,
+    vector_store: FAISSVectorStore,
+    top_k: int = DEFAULT_TOP_K
+) -> Dict[str, Any]:
+    """
+    Runs the RAG pipeline against an existing (already populated) vector store.
+
+    Why this variant exists:
+    Building a FAISS store per request wastes work. When a store is prepared
+    once (e.g. the demo dataset, or document indexing later), callers pass it
+    in and only retrieval + prompting + generation happen per request.
+    """
+    retrieved = retrieve_relevant_chunks(question, vector_store, top_k=top_k)
+    context = build_context(retrieved)
+    prompt = build_rag_prompt(question, context)
+
+    try:
+        answer = generate_response(prompt)
+    except RuntimeError:
+        # LLM errors already carry clear messages from llm_service
+        # (server down, timeout, bad format, empty response).
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Failed to generate an answer with the local LLM: {exc}")
+
+    return {
+        "answer": answer,
+        "sources": retrieved,
+    }
+
 def answer_question(
     question: str,
     chunks: List[Dict[str, Any]],
@@ -150,20 +181,4 @@ def answer_question(
     this proves the end-to-end flow works in memory.
     """
     vector_store = build_vector_store(chunks)
-    retrieved = retrieve_relevant_chunks(question, vector_store, top_k=top_k)
-    context = build_context(retrieved)
-    prompt = build_rag_prompt(question, context)
-
-    try:
-        answer = generate_response(prompt)
-    except RuntimeError:
-        # LLM errors already carry clear messages from llm_service
-        # (server down, timeout, bad format, empty response).
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"Failed to generate an answer with the local LLM: {exc}")
-
-    return {
-        "answer": answer,
-        "sources": retrieved,
-    }
+    return answer_question_from_store(question, vector_store, top_k=top_k)

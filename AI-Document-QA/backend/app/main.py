@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.api.routes import documents
+from app.api.routes import rag
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -24,6 +25,9 @@ app.add_middleware(
 
 # Register Document Routes
 app.include_router(documents.router, prefix="/documents", tags=["documents"])
+
+# Register RAG Routes
+app.include_router(rag.router, prefix="/rag", tags=["rag"])
 
 @app.get("/health")
 def health_check():
