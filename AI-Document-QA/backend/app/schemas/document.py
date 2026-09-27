@@ -14,3 +14,12 @@ class DocumentResponse(BaseModel):
 
     # Config to allow Pydantic to read data from SQLAlchemy ORM models
     model_config = ConfigDict(from_attributes=True)
+
+class DocumentTextPage(BaseModel):
+    page_number: int
+    text: str
+
+class DocumentTextResponse(BaseModel):
+    document_id: int
+    filename: str
+    pages: list[DocumentTextPage]

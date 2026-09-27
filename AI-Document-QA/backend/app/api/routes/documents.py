@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.document import Document
-from app.schemas.document import DocumentResponse
+from app.schemas.document import DocumentResponse, DocumentTextResponse
+from app.services.pdf_extractor import extract_text_from_pdf
 from app.api.deps import get_current_dev_user
 from app.models.user import User
 
@@ -127,3 +128,32 @@ def delete_document(
             pass
             
     return None
+
+@router.get("/{document_id}/text", response_model=DocumentTextResponse)
+def get_document_text(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_dev_user)
+):
+    # Ensure the user can only fetch their own document
+    doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    file_path = os.path.join(UPLOAD_DIR, doc.stored_filename)
+
+    # Extract text from the PDF
+    try:
+        pages_data = extract_text_from_pdf(file_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Physical PDF file not found on disk.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An error occurred while extracting text from the PDF.")
+
+    return DocumentTextResponse(
+        document_id=doc.id,
+        filename=doc.original_filename,
+        pages=pages_data
+    )
