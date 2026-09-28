@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.api.routes import documents
 from app.api.routes import rag
+from app.api.routes import chats
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -28,6 +29,9 @@ app.include_router(documents.router, prefix="/documents", tags=["documents"])
 
 # Register RAG Routes
 app.include_router(rag.router, prefix="/rag", tags=["rag"])
+
+# Register Chat Routes
+app.include_router(chats.router, prefix="/chats", tags=["chats"])
 
 @app.get("/health")
 def health_check():
