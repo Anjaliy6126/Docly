@@ -1,6 +1,12 @@
+import json
+import logging
+import os
+
 import numpy as np
 import faiss
 from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # The embedding model (all-MiniLM-L6-v2 in embedding_service.py) produces
 # fixed-size dense vectors. This constant must match that output exactly,
@@ -9,7 +15,7 @@ EMBEDDING_DIMENSION = 384
 
 class FAISSVectorStore:
     """
-    A local, in-memory FAISS vector store for document chunk embeddings.
+    A local FAISS vector store for document chunk embeddings.
 
     How it works:
     - FAISS stores only the numeric vectors, in a flat index.
@@ -17,15 +23,28 @@ class FAISSVectorStore:
       plain Python list that lives OUTSIDE the index.
     - The two structures are kept in lockstep: a vector added at FAISS
       position i always has its metadata at self.metadata[i].
+
+    Persistence (optional):
+    - Pass persist_directory to save the index + metadata to disk and load
+      them back on construction (so the store survives restarts).
+    - Without persist_directory the store behaves exactly as before:
+      purely in-memory (all existing callers/tests are unaffected).
     """
-    
-    def __init__(self, dimension: int = EMBEDDING_DIMENSION):
+
+    INDEX_FILENAME = "index.faiss"
+    METADATA_FILENAME = "metadata.json"
+
+    def __init__(self, dimension: int = EMBEDDING_DIMENSION,
+                 persist_directory: Optional[str] = None):
         if not isinstance(dimension, int) or dimension <= 0:
             raise ValueError("dimension must be a positive integer.")
-        
+        if persist_directory is not None and not isinstance(persist_directory, str):
+            raise ValueError("persist_directory must be a directory path string or None.")
+
         self.dimension = dimension
+        self.persist_directory = persist_directory
         self.metadata: List[Dict[str, Any]] = []
-        
+
         # Why IndexFlatIP:
         # IndexFlatIP performs exact (not approximate) inner-product search.
         # When vectors are L2-normalized, inner product equals cosine
@@ -34,6 +53,120 @@ class FAISSVectorStore:
         # deterministic, exact results with no tuning parameters, which is
         # what a RAG pipeline wants for reliable source retrieval.
         self.index = faiss.IndexFlatIP(self.dimension)
+
+        if self.persist_directory is not None:
+            # Missing files are a normal first-run condition (load() simply
+            # keeps the empty store). A CORRUPTED file raises a clear error
+            # instead of pretending the store contains valid vectors.
+            self.load()
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _persistence_paths(self, directory: Optional[str] = None):
+        directory = directory or self.persist_directory
+        if not directory:
+            raise ValueError(
+                "No persistence directory configured. Pass persist_directory "
+                "to the constructor or a directory to save()/load()."
+            )
+        return (
+            os.path.join(directory, self.INDEX_FILENAME),
+            os.path.join(directory, self.METADATA_FILENAME),
+        )
+
+    def save(self, directory: Optional[str] = None) -> None:
+        """
+        Persists the FAISS index and the metadata list to disk.
+
+        Why atomic saving:
+        The index and metadata are written to temporary files first and then
+        swapped into place with os.replace(), so an interrupted save can
+        never leave a half-written index paired with a full metadata list
+        (or vice versa).
+        """
+        index_path, metadata_path = self._persistence_paths(directory)
+        directory = os.path.dirname(index_path)
+        os.makedirs(directory, exist_ok=True)
+
+        tmp_index_path = index_path + ".tmp"
+        tmp_metadata_path = metadata_path + ".tmp"
+
+        faiss.write_index(self.index, tmp_index_path)
+        with open(tmp_metadata_path, "w", encoding="utf-8") as f:
+            json.dump(self.metadata, f, ensure_ascii=False)
+
+        os.replace(tmp_index_path, index_path)
+        os.replace(tmp_metadata_path, metadata_path)
+        logger.info(
+            f"Vector store saved: {self.index.ntotal} vectors -> {directory}"
+        )
+
+    def load(self, directory: Optional[str] = None) -> bool:
+        """
+        Loads the FAISS index and metadata from disk.
+
+        Returns True if a persisted store was loaded, False if no
+        persistence files exist yet (a normal first-run condition).
+
+        Raises RuntimeError with a clear message if the files exist but
+        cannot be loaded safely (corrupted index, unreadable metadata,
+        dimension mismatch, or index/metadata out of sync) — an empty store
+        is used instead of pretending the data is valid.
+        """
+        index_path, metadata_path = self._persistence_paths(directory)
+
+        if not os.path.exists(index_path) and not os.path.exists(metadata_path):
+            # Normal first run: nothing persisted yet.
+            return False
+
+        if not os.path.exists(index_path) or not os.path.exists(metadata_path):
+            raise RuntimeError(
+                "Vector store persistence is incomplete: index and metadata "
+                f"files must exist together (missing one of: {index_path}, "
+                f"{metadata_path})."
+            )
+
+        try:
+            loaded_index = faiss.read_index(index_path)
+        except Exception as exc:
+            raise RuntimeError(f"Could not read the FAISS index file: {exc}")
+
+        if loaded_index.d != self.dimension:
+            raise RuntimeError(
+                f"Persisted FAISS index has dimension {loaded_index.d}, but this "
+                f"store expects {self.dimension}. The persisted store is "
+                "incompatible and was not loaded."
+            )
+
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                loaded_metadata = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise RuntimeError(f"Could not read the vector store metadata file: {exc}")
+
+        if not isinstance(loaded_metadata, list):
+            raise RuntimeError("Vector store metadata file is invalid (expected a list).")
+        if len(loaded_metadata) != loaded_index.ntotal:
+            raise RuntimeError(
+                f"Vector store is out of sync: index has {loaded_index.ntotal} "
+                f"vectors but metadata has {len(loaded_metadata)} entries. "
+                "The persisted store is inconsistent and was not loaded."
+            )
+        for i, entry in enumerate(loaded_metadata):
+            if not isinstance(entry, dict) or not {"document_id", "page_number", "chunk_index", "text"}.issubset(entry.keys()):
+                raise RuntimeError(
+                    f"Vector store metadata entry at position {i} is invalid."
+                )
+
+        # Only now, after every check passed, replace the in-memory state.
+        self.index = loaded_index
+        self.metadata = loaded_metadata
+        logger.info(
+            f"Vector store loaded: {self.index.ntotal} vectors from {directory or self.persist_directory}"
+        )
+        return True
     
     def add_chunks(self, chunks: List[Dict[str, Any]]) -> None:
         """
@@ -91,6 +224,12 @@ class FAISSVectorStore:
                 "chunk_index": chunk["chunk_index"],
                 "text": chunk["text"],
             })
+
+        # Persist immediately so newly indexed documents survive a restart.
+        # Without a configured persist_directory this is a no-op (in-memory
+        # behavior, unchanged).
+        if self.persist_directory is not None:
+            self.save()
     
     def search(
         self,

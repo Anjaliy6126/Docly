@@ -9,10 +9,10 @@ from app.services.document_vector_store import document_vector_store
 
 logger = logging.getLogger(__name__)
 
-# Same upload directory logic as app/api/routes/documents.py:
-# this file lives at backend/app/services/, so four dirname() steps
+# Same upload directory as app/api/routes/documents.py:
+# this file lives at backend/app/services/, so THREE dirname() steps
 # reach backend/, where the shared documents/ upload folder lives.
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 UPLOAD_DIR = os.path.join(BASE_DIR, "documents")
 
 def resolve_stored_pdf_path(stored_filename: str) -> str:
