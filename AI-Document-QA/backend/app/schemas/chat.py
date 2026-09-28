@@ -2,6 +2,8 @@ from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.rag import RAGSource
+
 class ChatCreateRequest(BaseModel):
     """Request body for creating a new chat with selected documents."""
 
@@ -38,3 +40,37 @@ class ChatResponse(BaseModel):
     document_ids: List[int]
     created_at: str
     updated_at: str
+
+class MessageCreateRequest(BaseModel):
+    """Request body for sending a question to a chat."""
+
+    content: str = Field(
+        min_length=1,
+        max_length=5000,
+        description="The user's question (1-5000 characters after trimming whitespace)."
+    )
+
+    @field_validator("content")
+    @classmethod
+    def content_must_not_be_blank(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("content must be a non-empty string.")
+        return trimmed
+
+class MessageResponse(BaseModel):
+    """One persisted chat message."""
+    id: int
+    role: str
+    content: str
+    created_at: str
+
+class ChatMessageResponse(BaseModel):
+    """
+    The full result of asking a chat a question: both persisted messages plus
+    the RAG sources that grounded the answer. Embeddings are never returned.
+    """
+    chat_id: int
+    user_message: MessageResponse
+    assistant_message: MessageResponse
+    sources: List[RAGSource]
