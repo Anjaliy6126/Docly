@@ -74,3 +74,8 @@ class ChatMessageResponse(BaseModel):
     user_message: MessageResponse
     assistant_message: MessageResponse
     sources: List[RAGSource]
+
+class ChatMessagesResponse(BaseModel):
+    """Full persisted conversation history for a chat, oldest message first."""
+    chat_id: int
+    messages: List[MessageResponse]

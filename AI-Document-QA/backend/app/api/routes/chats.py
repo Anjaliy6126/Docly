@@ -13,6 +13,7 @@ from app.schemas.chat import (
     MessageCreateRequest,
     MessageResponse,
     ChatMessageResponse,
+    ChatMessagesResponse,
 )
 from app.services import rag_service
 from app.services.document_vector_store import document_vector_store
@@ -163,4 +164,43 @@ def send_chat_message(
             created_at=assistant_message.created_at.isoformat(),
         ),
         sources=rag_result["sources"],
+    )
+
+@router.get("/{chat_id}/messages", response_model=ChatMessagesResponse)
+def get_chat_messages(
+    chat_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_dev_user)
+):
+    """
+    Returns the persisted conversation history for a chat, oldest first.
+
+    This endpoint only reads data: no Ollama/FAISS/embedding calls and no
+    database writes. Messages are ordered by created_at ASC, with id as a
+    deterministic tiebreaker because the user and assistant messages of one
+    exchange are committed in the same transaction and can share an
+    identical created_at timestamp.
+    """
+    chat = db.query(Chat).filter(Chat.id == chat_id, Chat.owner_id == current_user.id).first()
+    if not chat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found.")
+
+    messages = (
+        db.query(Message)
+        .filter(Message.chat_id == chat.id)
+        .order_by(Message.created_at.asc(), Message.id.asc())
+        .all()
+    )
+
+    return ChatMessagesResponse(
+        chat_id=chat.id,
+        messages=[
+            MessageResponse(
+                id=m.id,
+                role=m.role.value,
+                content=m.content,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in messages
+        ],
     )
