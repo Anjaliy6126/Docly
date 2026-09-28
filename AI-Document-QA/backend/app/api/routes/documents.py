@@ -4,10 +4,11 @@ import shutil
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.document import Document
+from app.models.document import Document, ProcessingStatus
 from app.schemas.document import DocumentResponse, DocumentTextResponse, DocumentChunk
 from app.services.pdf_extractor import extract_text_from_pdf
 from app.services.text_chunker import chunk_document_pages
+from app.services.document_indexing_service import index_document
 from app.api.deps import get_current_dev_user
 from app.models.user import User
 
@@ -74,6 +75,34 @@ def upload_document(
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(status_code=500, detail="Database insertion failed.")
+
+    # 7. Index the document synchronously (no background workers yet).
+    #    The existing index_document() pipeline reuses PDF extraction,
+    #    chunking, embedding, and FAISS insertion + persistence — nothing
+    #    is duplicated here. It happens exactly once per upload, so no
+    #    duplicate vectors are created by this flow.
+    new_doc.status = ProcessingStatus.processing
+    db.commit()
+
+    try:
+        index_document(new_doc)
+    except Exception:
+        # Indexing failed: mark the existing Document row as failed (no
+        # duplicate rows are created) and keep the uploaded PDF so a future
+        # retry mechanism can process it again.
+        new_doc.status = ProcessingStatus.failed
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail="Document uploaded, but automatic indexing failed. "
+                   "The document is saved and can be retried later.",
+        )
+
+    # Only marked processed after extraction, chunking, embedding, FAISS
+    # insertion AND FAISS persistence all succeeded inside index_document().
+    new_doc.status = ProcessingStatus.processed
+    db.commit()
+    db.refresh(new_doc)
 
     return new_doc
 
