@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 # prompt stays short and llama3.2:3b stays fast on a laptop.
 DEFAULT_TOP_K = 3
 
+# The grounded fallback answer. Returned when nothing usable can be
+# retrieved (no documents selected, no matching vectors, empty store) and
+# also embedded in the prompt instructions, so the LLM uses the same wording.
+UNAVAILABLE_ANSWER = "The answer is not available in the provided documents."
+
 def validate_question(question: str) -> None:
     """Raises ValueError if the question is not a usable non-empty string."""
     if not isinstance(question, str) or not question.strip():
@@ -54,7 +59,8 @@ def build_vector_store(chunks: List[Dict[str, Any]]) -> FAISSVectorStore:
 def retrieve_relevant_chunks(
     question: str,
     vector_store: FAISSVectorStore,
-    top_k: int = DEFAULT_TOP_K
+    top_k: int = DEFAULT_TOP_K,
+    document_ids: List[int] = None
 ) -> List[Dict[str, Any]]:
     """
     Embeds the user's question and returns the top_k most similar chunks.
@@ -62,6 +68,9 @@ def retrieve_relevant_chunks(
     Why embed the question:
     Similarity search compares vectors, not raw text, so the question must be
     mapped into the same 384-dimensional space as the stored chunks.
+
+    document_ids optionally restricts the search to specific documents
+    (passed straight through to the existing FAISSVectorStore.search()).
     """
     validate_question(question)
     validate_top_k(top_k)
@@ -72,7 +81,9 @@ def retrieve_relevant_chunks(
         raise RuntimeError(f"Failed to generate an embedding for the question: {exc}")
 
     try:
-        results = vector_store.search(question_embedding, top_k=top_k)
+        results = vector_store.search(
+            question_embedding, top_k=top_k, document_ids=document_ids
+        )
     except ValueError:
         # Errors from search() (empty store, bad dimensions, bad top_k) are
         # already clear; re-raise them unchanged instead of swallowing them.
@@ -132,17 +143,44 @@ def build_rag_prompt(question: str, context: str) -> str:
 def answer_question_from_store(
     question: str,
     vector_store: FAISSVectorStore,
-    top_k: int = DEFAULT_TOP_K
+    top_k: int = DEFAULT_TOP_K,
+    document_ids: List[int] = None
 ) -> Dict[str, Any]:
     """
     Runs the RAG pipeline against an existing (already populated) vector store.
 
     Why this variant exists:
     Building a FAISS store per request wastes work. When a store is prepared
-    once (e.g. the demo dataset, or document indexing later), callers pass it
-    in and only retrieval + prompting + generation happen per request.
+    once (e.g. document indexing), callers pass it in and only retrieval +
+    prompting + generation happen per request.
+
+    Grounded fallback cases (no LLM call is made, nothing is invented):
+    - document_ids == []: no documents were selected, so searching everything
+      would be wrong — return the fallback with no sources.
+    - Empty vector store: nothing is indexed yet — return the fallback.
+    - No matching vectors for the selected document(s): return the fallback.
     """
-    retrieved = retrieve_relevant_chunks(question, vector_store, top_k=top_k)
+    if document_ids is not None and not document_ids:
+        return {"answer": UNAVAILABLE_ANSWER, "sources": []}
+
+    try:
+        retrieved = retrieve_relevant_chunks(
+            question, vector_store, top_k=top_k, document_ids=document_ids
+        )
+    except ValueError as exc:
+        # An empty store means nothing is indexed yet — that is a normal
+        # "no documents" situation, not a crash. Match the exact message so
+        # unrelated ValueErrors (invalid question, bad dimensions, bad top_k)
+        # are NOT swallowed and are re-raised as real errors.
+        if "vector store is empty" in str(exc).lower():
+            return {"answer": UNAVAILABLE_ANSWER, "sources": []}
+        raise
+
+    if not retrieved:
+        # The selected document(s) simply do not contain anything similar
+        # enough to the question — answer honestly instead of guessing.
+        return {"answer": UNAVAILABLE_ANSWER, "sources": []}
+
     context = build_context(retrieved)
     prompt = build_rag_prompt(question, context)
 
