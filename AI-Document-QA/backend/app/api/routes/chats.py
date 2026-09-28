@@ -111,7 +111,25 @@ def send_chat_message(
             detail="This chat has no associated documents. Add at least one document before asking questions.",
         )
 
-    # 3. Run the existing RAG pipeline, restricted to the chat's documents.
+    # 3. Load the last MAX_CONVERSATION_HISTORY messages (chronological) so
+    #    the LLM can understand follow-up questions and references.
+    #    The current question has NOT been persisted yet, so it is naturally
+    #    excluded. Only role + content go into the prompt — no IDs, no
+    #    timestamps. Retrieval still uses only chat_document_ids, so chat
+    #    history can never pull in unrelated documents.
+    recent_messages = (
+        db.query(Message)
+        .filter(Message.chat_id == chat.id)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(rag_service.MAX_CONVERSATION_HISTORY)
+        .all()
+    )
+    conversation_history = [
+        {"role": m.role.value, "content": m.content}
+        for m in reversed(recent_messages)  # back to chronological order
+    ]
+
+    # 4. Run the existing RAG pipeline, restricted to the chat's documents.
     #    No Message rows exist yet, so a RAG failure stores nothing.
     try:
         rag_result = rag_service.answer_question_from_store(
@@ -119,13 +137,14 @@ def send_chat_message(
             vector_store=document_vector_store,
             top_k=rag_service.DEFAULT_TOP_K,
             document_ids=chat_document_ids,
+            conversation_history=conversation_history,
         )
     except RuntimeError as exc:
         # RAG/LLM failures (Ollama down, timeout, bad response) surface as
         # clear, safe messages — no stack traces.
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
-    # 4. Persist both messages together in one transaction.
+    # 5. Persist both messages together in one transaction.
     try:
         user_message = Message(
             chat_id=chat.id,
