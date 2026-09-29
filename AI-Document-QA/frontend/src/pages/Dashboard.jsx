@@ -1,7 +1,16 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { CheckCircle2, FileText, Loader2, Upload, Wifi, XCircle } from 'lucide-react'
-import { uploadDocument } from '../services/api'
+import {
+  CheckCircle2,
+  FileText,
+  Loader2,
+  RotateCcw,
+  Trash2,
+  Upload,
+  Wifi,
+  XCircle,
+} from 'lucide-react'
+import { deleteDocument, getDocuments, uploadDocument } from '../services/api'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { SystemStatus } from '../components/SystemStatus'
@@ -17,14 +26,60 @@ const riseItem = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
 }
 
-/** Small fade-in for the upload status panel that appears after an action. */
+/* Small fade-in for upload status banners that appear after an action. */
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
 }
 
+/* Real backend processing statuses only. Unknown values fall back to muted. */
+const STATUS_STYLES = {
+  processed: { dot: 'bg-status-ok', text: 'text-status-ok', label: 'Processed' },
+  processing: { dot: 'bg-accent animate-pulse', text: 'text-accent', label: 'Processing' },
+  uploaded: { dot: 'bg-muted', text: 'text-secondary', label: 'Uploaded' },
+  failed: { dot: 'bg-status-down', text: 'text-status-down', label: 'Failed' },
+}
+
+function StatusBadge({ status }) {
+  const style = STATUS_STYLES[status] ?? { dot: 'bg-muted', text: 'text-secondary', label: status }
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-nested px-2.5 py-1 text-xs font-medium ${style.text}`}
+    >
+      <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+      {style.label}
+    </span>
+  )
+}
+
+/** Human-readable file size: 1024 -> "1.0 KB", 1048576 -> "1.0 MB". */
+function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined || Number.isNaN(Number(bytes))) return '—'
+  let value = Number(bytes)
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let unitIndex = -1
+  do {
+    value /= 1024
+    unitIndex++
+  } while (value >= 1024 && unitIndex < units.length - 1)
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+/** Readable upload date using the browser's own formatter; "—" when invalid. */
+function formatDate(timestamp) {
+  if (!timestamp) return '—'
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+function readableError(error) {
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+}
+
 /**
- * Dashboard workspace: hero message, document area with real PDF upload,
+ * Dashboard workspace: hero message, real document list with upload/delete,
  * and a real backend status panel.
  */
 export function Dashboard({ status }) {
@@ -34,7 +89,37 @@ export function Dashboard({ status }) {
   const [uploadedFilename, setUploadedFilename] = useState(null)
   const [uploadError, setUploadError] = useState(null)
 
+  // Document list: 'loading' | 'error' | 'ready'
+  const [docsState, setDocsState] = useState('loading')
+  const [docsError, setDocsError] = useState(null)
+  const [documents, setDocuments] = useState([])
+
+  // Delete flow: inline per-row confirmation
+  const [deleteTargetId, setDeleteTargetId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+  const [deleteError, setDeleteError] = useState(null)
+
   const isUploading = uploadState === 'uploading'
+
+  /* Load documents once on mount; reused after uploads and for retry. */
+  const loadDocuments = useCallback(async () => {
+    try {
+      const docs = await getDocuments()
+      setDocuments(docs)
+      setDocsError(null)
+      setDocsState('ready')
+    } catch (error) {
+      setDocsError(readableError(error))
+      setDocsState('error')
+    }
+  }, [])
+
+  useEffect(() => {
+    const run = async () => {
+      await loadDocuments()
+    }
+    run()
+  }, [loadDocuments])
 
   const openFilePicker = () => {
     if (isUploading) return
@@ -65,11 +150,39 @@ export function Dashboard({ status }) {
       const document = await uploadDocument(file)
       setUploadedFilename(document.original_filename || file.name)
       setUploadState('success')
+      // Refresh the list so the new document appears automatically.
+      await loadDocuments()
     } catch (error) {
       setUploadState('error')
-      setUploadError(
-        error instanceof Error ? error.message : 'Upload failed. Please try again.',
-      )
+      setUploadError(readableError(error))
+    }
+  }
+
+  const requestDelete = (doc) => {
+    if (deletingId !== null) return
+    setDeleteError(null)
+    setDeleteTargetId(doc.id)
+  }
+
+  const cancelDelete = () => {
+    setDeleteTargetId(null)
+    setDeleteError(null)
+  }
+
+  const confirmDelete = async (doc) => {
+    setDeletingId(doc.id)
+    setDeleteError(null)
+    try {
+      await deleteDocument(doc.id)
+      // Remove from local state — no page refresh needed.
+      setDocuments((docs) => docs.filter((d) => d.id !== doc.id))
+      setDeleteTargetId(null)
+    } catch (error) {
+      // Keep the document visible and show a readable error.
+      setDeleteError(`Could not delete "${doc.original_filename}": ${readableError(error)}`)
+      setDeleteTargetId(null)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -117,58 +230,86 @@ export function Dashboard({ status }) {
               </Button>
             </div>
 
-            {uploadState === 'success' ? (
-              /* Success state — real upload result, no fake document cards */
+            {/* Upload success banner — real upload result */}
+            {uploadState === 'success' && (
               <motion.div
                 {...fadeIn}
                 role="status"
-                className="flex flex-col items-center justify-center rounded-xl border border-line-luminous bg-canvas/60 px-6 py-12 text-center"
+                className="mb-4 flex items-center gap-3 rounded-xl border border-line-luminous bg-canvas/60 px-4 py-3"
               >
-                <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-nested text-status-ok">
-                  <CheckCircle2 size={26} aria-hidden="true" />
-                </span>
-                <p className="font-heading text-sm font-semibold text-foreground">
-                  Upload complete
-                </p>
-                <p className="mt-1 max-w-md text-sm text-secondary">
-                  <span className="font-medium text-foreground">
-                    {uploadedFilename}
-                  </span>{' '}
+                <CheckCircle2 size={18} aria-hidden="true" className="shrink-0 text-status-ok" />
+                <p className="text-sm text-secondary">
+                  <span className="font-medium text-foreground">{uploadedFilename}</span>{' '}
                   was uploaded and is ready for questions.
                 </p>
-                <Button
-                  variant="ghost"
-                  className="mt-5"
-                  onClick={openFilePicker}
-                  disabled={isUploading}
-                >
-                  <Upload size={16} aria-hidden="true" />
-                  Upload another PDF
-                </Button>
               </motion.div>
-            ) : uploadState === 'error' ? (
-              /* Error state — readable message, retry stays available */
+            )}
+
+            {/* Upload error banner — readable message, retry available */}
+            {uploadState === 'error' && (
               <motion.div
                 {...fadeIn}
                 role="alert"
+                className="mb-4 flex items-center gap-3 rounded-xl border border-status-down/40 bg-canvas/60 px-4 py-3"
+              >
+                <XCircle size={18} aria-hidden="true" className="shrink-0 text-status-down" />
+                <p className="text-sm text-secondary">{uploadError}</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto shrink-0"
+                  onClick={openFilePicker}
+                >
+                  Try again
+                </Button>
+              </motion.div>
+            )}
+
+            {/* Delete error banner — document stays visible */}
+            {deleteError && (
+              <motion.div
+                {...fadeIn}
+                role="alert"
+                className="mb-4 flex items-center gap-3 rounded-xl border border-status-down/40 bg-canvas/60 px-4 py-3"
+              >
+                <XCircle size={18} aria-hidden="true" className="shrink-0 text-status-down" />
+                <p className="text-sm text-secondary">{deleteError}</p>
+              </motion.div>
+            )}
+
+            {/* List loading state */}
+            {docsState === 'loading' && (
+              <div
                 className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-canvas/60 px-6 py-12 text-center"
+                role="status"
+              >
+                <Loader2 size={26} aria-hidden="true" className="mb-4 animate-spin text-accent" />
+                <p className="text-sm text-secondary">Loading documents...</p>
+              </div>
+            )}
+
+            {/* List error state — retry available */}
+            {docsState === 'error' && (
+              <div
+                className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-canvas/60 px-6 py-12 text-center"
+                role="alert"
               >
                 <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-nested text-status-down">
                   <XCircle size={26} aria-hidden="true" />
                 </span>
                 <p className="font-heading text-sm font-semibold text-foreground">
-                  Upload failed
+                  Could not load documents
                 </p>
-                <p className="mt-1 max-w-md text-sm text-secondary">
-                  {uploadError}
-                </p>
-                <Button className="mt-5" onClick={openFilePicker}>
-                  <Upload size={16} aria-hidden="true" />
-                  Try again
+                <p className="mt-1 max-w-md text-sm text-secondary">{docsError}</p>
+                <Button variant="ghost" className="mt-5" onClick={loadDocuments}>
+                  <RotateCcw size={16} aria-hidden="true" />
+                  Retry
                 </Button>
-              </motion.div>
-            ) : (
-              /* Idle / uploading empty state */
+              </div>
+            )}
+
+            {/* Empty state */}
+            {docsState === 'ready' && documents.length === 0 && (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-canvas/60 px-6 py-12 text-center">
                 <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-nested text-accent">
                   {isUploading ? (
@@ -200,6 +341,100 @@ export function Dashboard({ status }) {
                 </Button>
               </div>
             )}
+
+            {/* Real document list */}
+            {docsState === 'ready' && documents.length > 0 && (
+              <motion.ul
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+                aria-label="Uploaded documents"
+                className="space-y-2"
+              >
+                {documents.map((doc) => {
+                  const isDeleteTarget = deleteTargetId === doc.id
+                  const isDeleting = deletingId === doc.id
+                  return (
+                    <motion.li
+                      key={doc.id}
+                      variants={riseItem}
+                      className="flex flex-wrap sm:flex-nowrap items-center gap-3 rounded-xl border border-line bg-canvas/60 px-4 py-3 transition-colors duration-150 hover:border-line-luminous md:gap-4"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1 w-full sm:w-auto">
+                        <span
+                          aria-hidden="true"
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-nested text-accent"
+                        >
+                          <FileText size={18} />
+                        </span>
+
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="truncate text-sm font-medium text-foreground"
+                            title={doc.original_filename}
+                          >
+                            {doc.original_filename}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted">
+                            {formatFileSize(doc.file_size)} · Uploaded{' '}
+                            {formatDate(doc.upload_timestamp)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex w-full sm:w-auto shrink-0 items-center justify-between sm:justify-end gap-3 mt-2 sm:mt-0">
+                        <StatusBadge status={doc.status} />
+
+                        {isDeleteTarget ? (
+                          /* Inline delete confirmation */
+                          <div
+                            className="flex shrink-0 items-center gap-2"
+                            role="group"
+                            aria-label={`Confirm deletion of ${doc.original_filename}`}
+                          >
+                            <span className="hidden text-xs text-secondary lg:inline">
+                              Delete?
+                            </span>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => confirmDelete(doc)}
+                              disabled={isDeleting}
+                            >
+                              {isDeleting ? (
+                                <Loader2 size={14} aria-hidden="true" className="animate-spin" />
+                              ) : (
+                                <Trash2 size={14} aria-hidden="true" />
+                              )}
+                              {isDeleting ? 'Deleting...' : 'Delete'}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={cancelDelete}
+                              disabled={isDeleting}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 px-2"
+                            onClick={() => requestDelete(doc)}
+                            disabled={deletingId !== null}
+                            aria-label={`Delete ${doc.original_filename}`}
+                          >
+                            <Trash2 size={15} aria-hidden="true" />
+                          </Button>
+                        )}
+                      </div>
+                    </motion.li>
+                  )
+                })}
+              </motion.ul>
+            )}
           </Card>
         </motion.section>
 
@@ -215,7 +450,7 @@ export function Dashboard({ status }) {
             <SystemStatus status={status} />
             <p className="mt-4 text-xs leading-relaxed text-muted">
               The backend serves document storage, RAG search, and chat
-              features. Chats and documents will appear here once connected.
+              features. Chats will appear here once connected.
             </p>
           </Card>
         </motion.aside>

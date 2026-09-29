@@ -12,6 +12,9 @@ const VARIANTS = {
   ghost:
     'bg-raised text-secondary border border-line ' +
     'hover:text-foreground hover:border-line-luminous',
+  danger:
+    'bg-raised text-status-down border border-status-down/40 ' +
+    'hover:bg-status-down/10 hover:border-status-down/60',
 }
 
 const SIZES = {

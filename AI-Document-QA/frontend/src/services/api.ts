@@ -91,3 +91,50 @@ export async function uploadDocument(file: File): Promise<UploadedDocument> {
 
   return response.json()
 }
+
+/**
+ * Fetch all documents belonging to the current user via GET /documents.
+ * Returns the actual backend document array (newest first).
+ * Throws an Error with a user-readable message on any failure.
+ */
+export async function getDocuments(): Promise<UploadedDocument[]> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/documents`, {
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+
+  return response.json()
+}
+
+/**
+ * Delete a document via DELETE /documents/{document_id}.
+ * Returns once the backend confirms deletion (HTTP 204, no body).
+ * Throws an Error with a user-readable message on any failure.
+ */
+export async function deleteDocument(documentId: number): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+}
