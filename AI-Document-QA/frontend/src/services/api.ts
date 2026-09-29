@@ -213,3 +213,63 @@ export async function sendChatMessage(chatId: number, content: string): Promise<
 
   return response.json()
 }
+
+/** A chat session summary returned by GET /chats */
+export interface ChatListItem {
+  id: number
+  title: string
+  document_ids: number[]
+  created_at: string
+  updated_at: string
+}
+
+/** Full message history for a chat, returned by GET /chats/{chatId}/messages */
+export interface ChatMessagesResponse {
+  chat_id: number
+  messages: ChatMessage[]
+}
+
+/**
+ * Fetch all chats for the current user via GET /chats.
+ * Returns newest first.
+ */
+export async function getChats(): Promise<ChatListItem[]> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/chats`, {
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+
+  return response.json()
+}
+
+/**
+ * Fetch all messages for a chat via GET /chats/{chatId}/messages.
+ */
+export async function getChatMessages(chatId: number): Promise<ChatMessagesResponse> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages`, {
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+
+  return response.json()
+}

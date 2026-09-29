@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -223,3 +225,29 @@ def get_chat_messages(
             for m in messages
         ],
     )
+
+@router.get("", response_model=List[ChatResponse])
+def get_chats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_dev_user)
+):
+    """
+    Returns all chats owned by the current user, ordered by newest first.
+    """
+    chats = (
+        db.query(Chat)
+        .filter(Chat.owner_id == current_user.id)
+        .order_by(Chat.created_at.desc())
+        .all()
+    )
+
+    return [
+        ChatResponse(
+            id=chat.id,
+            title=chat.title,
+            document_ids=sorted(doc.id for doc in chat.documents),
+            created_at=chat.created_at.isoformat(),
+            updated_at=chat.updated_at.isoformat(),
+        )
+        for chat in chats
+    ]
