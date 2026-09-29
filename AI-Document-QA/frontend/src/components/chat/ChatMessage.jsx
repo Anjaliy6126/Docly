@@ -2,7 +2,7 @@ import { Bot, User } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { motion } from 'motion/react'
 
-export function ChatMessage({ role, content }) {
+export function ChatMessage({ role, content, sources }) {
   const isUser = role === 'user'
 
   return (
@@ -32,7 +32,19 @@ export function ChatMessage({ role, content }) {
         )}
       >
         <div className="whitespace-pre-wrap leading-relaxed">{content}</div>
-        {/* Room for future citations/source references */}
+        
+        {sources && sources.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1 border-t border-line/50 pt-3">
+            <span className="text-xs font-semibold text-secondary">Sources</span>
+            <ul className="flex flex-col gap-1">
+              {sources.map((src, i) => (
+                <li key={i} className="text-xs text-muted">
+                  • {src.filename ? src.filename + ' - ' : ''}Page {src.page_number}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </motion.div>
   )

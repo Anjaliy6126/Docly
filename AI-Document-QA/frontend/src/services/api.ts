@@ -138,3 +138,78 @@ export async function deleteDocument(documentId: number): Promise<void> {
     throw new Error(await extractErrorMessage(response))
   }
 }
+
+export interface ChatSource {
+  document_id: number
+  page_number: number
+  chunk_index: number
+  score: number
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatResponse {
+  chat_id: number
+  user_message: ChatMessage
+  assistant_message: ChatMessage
+  sources: ChatSource[]
+}
+
+/**
+ * Create a new chat session via POST /chats.
+ */
+export async function createChat(title: string, documentIds: number[]): Promise<{ id: number; title: string }> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/chats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title, document_ids: documentIds }),
+      signal: AbortSignal.timeout(10000),
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend to create a chat. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+
+  return response.json()
+}
+
+/**
+ * Send a message to an existing chat via POST /chats/{chatId}/messages.
+ * Generous timeout because Ollama inference can take a while.
+ */
+export async function sendChatMessage(chatId: number, content: string): Promise<ChatResponse> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+      signal: AbortSignal.timeout(120000), // 2 minutes for LLM generation
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the backend to send the message. Make sure the server is running, then try again.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response))
+  }
+
+  return response.json()
+}
