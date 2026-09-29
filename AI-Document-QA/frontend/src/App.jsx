@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AppShell } from './components/layout/AppShell'
 import { Sidebar } from './components/layout/Sidebar'
 import { Dashboard } from './pages/Dashboard'
+import { Chat } from './pages/Chat'
 import { useBackendHealth } from './hooks/useBackendHealth'
 
 function App() {
@@ -29,7 +30,7 @@ function App() {
 
   return (
     <AppShell sidebar={sidebar} status={status}>
-      <Dashboard status={status} />
+      {activeItem === 'chats' ? <Chat /> : <Dashboard status={status} />}
     </AppShell>
   )
 }
