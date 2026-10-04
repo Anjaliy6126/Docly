@@ -8,7 +8,7 @@ from app.models.chat import Chat
 from app.models.document import Document
 from app.models.message import Message, MessageRole
 from app.models.user import User
-from app.api.deps import get_current_dev_user
+from app.api.deps import get_current_user
 from app.schemas.chat import (
     ChatCreateRequest,
     ChatResponse,
@@ -26,10 +26,10 @@ router = APIRouter()
 def create_chat(
     request: ChatCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Creates a persistent chat owned by the current (dev) user and links the
+    Creates a persistent chat owned by the authenticated user and links the
     selected documents to it through the chat_documents association table.
 
     Transaction safety: the Chat row and all ChatDocument associations are
@@ -88,7 +88,7 @@ def send_chat_message(
     chat_id: int,
     request: MessageCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Answers a question inside a chat using RAG restricted to the documents
@@ -100,7 +100,7 @@ def send_chat_message(
     conversation. Both messages are committed together afterwards; if the
     commit fails, the session is rolled back.
     """
-    # 1. Find the chat (scoped to the dev user, consistent with the rest).
+    # 1. Find the chat (scoped to the authenticated user).
     chat = db.query(Chat).filter(Chat.id == chat_id, Chat.owner_id == current_user.id).first()
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found.")
@@ -169,7 +169,15 @@ def send_chat_message(
             detail="Failed to save the messages.",
         )
 
-    # 5. Return both messages plus the grounding sources (no embeddings).
+    # 5b. Resolve document filenames for sources in ONE batch query (no N+1).
+    raw_sources = rag_result.get("sources", [])
+    if raw_sources:
+        unique_ids = list({s["document_id"] for s in raw_sources})
+        docs = db.query(Document).filter(Document.id.in_(unique_ids)).all()
+        name_map = {doc.id: doc.original_filename for doc in docs}
+        rag_service.resolve_document_names(raw_sources, name_map)
+
+    # 5c. Return both messages plus the grounding sources (no embeddings).
     return ChatMessageResponse(
         chat_id=chat.id,
         user_message=MessageResponse(
@@ -184,14 +192,15 @@ def send_chat_message(
             content=assistant_message.content,
             created_at=assistant_message.created_at.isoformat(),
         ),
-        sources=rag_result["sources"],
+        sources=raw_sources,
     )
+
 
 @router.get("/{chat_id}/messages", response_model=ChatMessagesResponse)
 def get_chat_messages(
     chat_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Returns the persisted conversation history for a chat, oldest first.
@@ -229,7 +238,7 @@ def get_chat_messages(
 @router.get("", response_model=List[ChatResponse])
 def get_chats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Returns all chats owned by the current user, ordered by newest first.

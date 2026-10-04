@@ -8,3 +8,9 @@ python-dotenv==1.0.1
 PyMuPDF==1.24.5
 sentence-transformers
 faiss-cpu
+
+# Authentication (Prompt 23A foundation: password hashing + JWT)
+bcrypt==5.0.0
+PyJWT==2.15.1
+# Email format validation for the auth request schemas (EmailStr)
+email-validator==2.3.0

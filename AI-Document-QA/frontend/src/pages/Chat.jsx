@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import {
-  FileQuestion, AlertCircle, Loader2, FileText,
-  CheckCircle2, RotateCcw, Plus
+  FileQuestion,
+  AlertCircle,
+  Loader2,
+  FileText,
+  CheckCircle2,
+  RotateCcw,
+  Plus,
+  Lock,
+  Sparkles,
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { EmptyChatState } from '../components/chat/EmptyChatState'
@@ -10,8 +17,11 @@ import { ChatMessage } from '../components/chat/ChatMessage'
 import { ChatInput } from '../components/chat/ChatInput'
 import { ChatHistorySidebar } from '../components/chat/ChatHistorySidebar'
 import {
-  getDocuments, createChat, sendChatMessage,
-  getChats, getChatMessages
+  getDocuments,
+  createChat,
+  sendChatMessage,
+  getChats,
+  getChatMessages,
 } from '../services/api'
 import { cn } from '../lib/utils'
 
@@ -66,7 +76,7 @@ export function Chat() {
     setDocsState('loading')
     try {
       const docs = await getDocuments()
-      setDocuments(docs.filter(d => d.status === 'processed'))
+      setDocuments(docs.filter((d) => d.status === 'processed'))
       setDocsError(null)
       setDocsState('ready')
     } catch (error) {
@@ -97,47 +107,55 @@ export function Chat() {
   }, [loadDocuments, loadChats])
 
   // ── Select a previous chat, restore its messages ───────────────────────────
-  const handleSelectChat = useCallback(async (chat) => {
-    if (isSending) return
-    setIsLoadingSession(true)
-    setSendError(null)
-    setChatId(chat.id)
-    setMessages([])
+  const handleSelectChat = useCallback(
+    async (chat) => {
+      if (isSending) return
+      setIsLoadingSession(true)
+      setSendError(null)
+      setChatId(chat.id)
+      setMessages([])
 
-    // Pre-select the documents this chat was grounded in
-    setSelectedDocIds(chat.document_ids)
+      // Pre-select the documents this chat was grounded in
+      setSelectedDocIds(chat.document_ids || [])
 
-    try {
-      const result = await getChatMessages(chat.id)
-      setMessages(result.messages.map(m => ({
-        ...m,
-        // Archived messages don't carry sources — only new ones do.
-        sources: undefined,
-      })))
-    } catch (error) {
-      setSendError(readableError(error))
-    } finally {
-      setIsLoadingSession(false)
-    }
-  }, [isSending])
+      try {
+        const result = await getChatMessages(chat.id)
+        setMessages(
+          result.messages.map((m) => ({
+            ...m,
+            // Archived messages don't carry sources — only live ones do.
+            sources: undefined,
+          }))
+        )
+      } catch (error) {
+        setSendError(readableError(error))
+      } finally {
+        setIsLoadingSession(false)
+      }
+    },
+    [isSending]
+  )
 
   // ── Reset to blank new-chat state ──────────────────────────────────────────
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     setChatId(null)
     setMessages([])
     setSelectedDocIds([])
     setSendError(null)
     setIsSending(false)
     setIsLoadingSession(false)
-  }
+  }, [])
 
   // ── Toggle document selection (only before chat starts) ────────────────────
-  const toggleDocument = (id) => {
-    if (chatId || isSending) return
-    setSelectedDocIds(prev =>
-      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
-    )
-  }
+  const toggleDocument = useCallback(
+    (id) => {
+      if (chatId !== null || isSending) return
+      setSelectedDocIds((prev) =>
+        prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+      )
+    },
+    [chatId, isSending]
+  )
 
   // ── Send a message ─────────────────────────────────────────────────────────
   const handleSend = async (text) => {
@@ -149,7 +167,7 @@ export function Chat() {
     // Optimistic user message
     const tempId = Date.now()
     const optimisticUser = { id: tempId, role: 'user', content: text }
-    setMessages(prev => [...prev, optimisticUser])
+    setMessages((prev) => [...prev, optimisticUser])
 
     try {
       let currentChatId = chatId
@@ -159,17 +177,20 @@ export function Chat() {
         currentChatId = newChat.id
         setChatId(currentChatId)
         // Optimistically prepend to history sidebar
-        setChatHistory(prev => [newChat, ...prev])
+        setChatHistory((prev) => [newChat, ...prev])
       }
 
       const response = await sendChatMessage(currentChatId, text)
 
-      setMessages(prev => {
-        const withoutOptimistic = prev.filter(m => m.id !== tempId)
-        const resolvedSources = (response.sources || []).map(src => {
-          const doc = documents.find(d => d.id === src.document_id)
-          return { ...src, filename: doc ? doc.original_filename : null }
-        })
+      setMessages((prev) => {
+        const withoutOptimistic = prev.filter((m) => m.id !== tempId)
+        const resolvedSources = (response.sources || []).map((src) => ({
+          ...src,
+          document_name:
+            src.document_name ??
+            documents.find((d) => d.id === src.document_id)?.original_filename ??
+            null,
+        }))
         return [
           ...withoutOptimistic,
           response.user_message,
@@ -178,14 +199,18 @@ export function Chat() {
       })
     } catch (error) {
       setSendError(readableError(error))
-      setMessages(prev => prev.filter(m => m.id !== tempId))
+      setMessages((prev) => prev.filter((m) => m.id !== tempId))
     } finally {
       setIsSending(false)
     }
   }
 
-  const selectedDocs = documents.filter(d => selectedDocIds.includes(d.id))
-  const inputDisabled = docsState !== 'ready' || selectedDocIds.length === 0 || isSending || isLoadingSession
+  const selectedDocs = documents.filter((d) => selectedDocIds.includes(d.id))
+  const inputDisabled =
+    docsState !== 'ready' ||
+    selectedDocIds.length === 0 ||
+    isSending ||
+    isLoadingSession
 
   return (
     <motion.div
@@ -194,27 +219,40 @@ export function Chat() {
       animate="show"
       className="flex min-h-[calc(100vh-140px)] flex-col gap-6 md:min-h-[calc(100vh-120px)]"
     >
-      {/* Page header */}
-      <motion.section variants={riseItem} className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+      {/* Page Header */}
+      <motion.section
+        variants={riseItem}
+        className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+      >
         <div>
-          <h1 className="font-heading text-2xl font-extrabold tracking-tight text-foreground md:text-3xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-line-luminous bg-accent/10 px-3 py-0.5 text-xs font-mono font-semibold tracking-wider text-accent uppercase mb-1.5 shadow-[0_0_12px_rgba(229,9,20,0.2)]">
+            <Sparkles size={12} className="text-accent" />
+            <span>Grounded RAG Assistant</span>
+          </div>
+          <h1 className="font-heading text-2xl font-extrabold tracking-tight md:text-3xl bg-gradient-to-r from-foreground via-slate-100 to-secondary bg-clip-text text-transparent">
             Document Chat
           </h1>
-          <p className="mt-1 text-sm text-secondary md:text-base">
-            Ask questions grounded in your selected documents.
+          <p className="text-xs md:text-sm text-secondary">
+            Multi-document vector retrieval with citations and contextual memory.
           </p>
         </div>
-        {chatId && (
-          <Button variant="ghost" onClick={handleNewChat} className="shrink-0 self-start md:self-auto">
-            <Plus size={15} className="mr-1.5" />
+        {chatId !== null && (
+          <Button
+            variant="ghost"
+            onClick={handleNewChat}
+            className="shrink-0 self-start md:self-auto cursor-pointer border-line-luminous hover:border-accent/40 text-xs py-2 px-3.5 shadow-sm"
+          >
+            <Plus size={14} className="mr-1.5 text-accent" />
             New chat
           </Button>
         )}
       </motion.section>
 
-      {/* Main layout: history sidebar + chat workspace */}
-      <motion.div variants={riseItem} className="flex flex-1 flex-col gap-4 lg:flex-row lg:items-start">
-
+      {/* Main Layout: Sidebar + Workspace */}
+      <motion.div
+        variants={riseItem}
+        className="flex flex-1 flex-col gap-5 lg:flex-row lg:items-start"
+      >
         {/* ── Chat History Sidebar ──────────────────────────────────────── */}
         <ChatHistorySidebar
           chats={chatHistory}
@@ -226,16 +264,28 @@ export function Chat() {
           onRetry={loadChats}
         />
 
-        {/* ── Right workspace ───────────────────────────────────────────── */}
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-
-          {/* Document Selection / Context Panel */}
-          <div className="rounded-2xl border border-line bg-canvas/40 p-4 md:p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <FileQuestion size={16} className="text-muted" aria-hidden="true" />
-              <h2 className="font-heading text-sm font-bold text-foreground">
-                {chatId ? 'Chat context' : 'Select documents'}
-              </h2>
+        {/* ── Right Workspace ───────────────────────────────────────────── */}
+        <div className="flex min-w-0 flex-1 flex-col gap-5">
+          {/* Document Context / Selector Panel */}
+          <div className="rounded-2xl border border-line bg-surface/75 backdrop-blur-xl p-4 md:p-5 shadow-xl">
+            <div className="mb-3.5 flex items-center justify-between border-b border-line/50 pb-2.5">
+              <div className="flex items-center gap-2">
+                <FileQuestion size={16} className="text-accent" aria-hidden="true" />
+                <h2 className="font-heading text-xs font-bold text-foreground uppercase tracking-wider font-mono">
+                  {chatId !== null ? 'Chat Context (Locked)' : 'Select Target Documents'}
+                </h2>
+                {chatId !== null && (
+                  <Lock size={12} className="text-muted ml-1" />
+                )}
+              </div>
+              {chatId === null && documents.length > 0 && (
+                <span className={cn(
+                  'text-xs font-mono font-medium transition-colors',
+                  selectedDocIds.length > 0 ? 'text-accent' : 'text-muted'
+                )}>
+                  {selectedDocIds.length} of {documents.length} selected
+                </span>
+              )}
             </div>
 
             {docsState === 'loading' && (
@@ -265,8 +315,8 @@ export function Chat() {
             )}
 
             {docsState === 'ready' && documents.length > 0 && (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {(chatId ? selectedDocs : documents).map(doc => {
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {(chatId !== null ? selectedDocs : documents).map((doc) => {
                   const isSelected = selectedDocIds.includes(doc.id)
                   const locked = chatId !== null || isSending
                   return (
@@ -276,25 +326,33 @@ export function Chat() {
                       disabled={locked && !isSelected}
                       onClick={() => toggleDocument(doc.id)}
                       className={cn(
-                        'flex items-center gap-3 rounded-xl border p-3 text-left transition-all',
+                        'group flex items-center gap-3 rounded-xl border p-3 text-left transition-all duration-150',
                         isSelected
-                          ? 'border-accent bg-accent/5'
-                          : 'border-line bg-surface hover:border-line-luminous',
-                        locked && !isSelected && 'cursor-not-allowed opacity-50',
-                        locked && isSelected && 'cursor-default border-line-luminous'
+                          ? 'border-accent bg-accent/10 shadow-[0_0_18px_rgba(229,9,20,0.22)] text-foreground scale-[1.01]'
+                          : 'border-line bg-canvas/60 text-secondary hover:border-line-luminous hover:bg-canvas/90 hover:text-foreground',
+                        locked && !isSelected && 'cursor-not-allowed opacity-40',
+                        locked && isSelected && 'cursor-default border-line-luminous',
+                        !locked && 'cursor-pointer'
                       )}
                     >
-                      <div className={cn(
-                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
-                        isSelected ? 'bg-accent text-white' : 'bg-nested text-muted'
-                      )}>
-                        {isSelected ? <CheckCircle2 size={14} /> : <FileText size={14} />}
+                      <div
+                        className={cn(
+                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all shadow-inner',
+                          isSelected
+                            ? 'bg-accent text-white shadow-[0_0_10px_rgba(229,9,20,0.7)]'
+                            : 'bg-nested text-muted group-hover:text-secondary group-hover:border group-hover:border-line'
+                        )}
+                      >
+                        {isSelected ? <CheckCircle2 size={16} /> : <FileText size={16} />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">
+                        <p className={cn(
+                          'truncate text-xs font-semibold',
+                          isSelected ? 'text-foreground' : 'text-secondary group-hover:text-foreground'
+                        )}>
                           {doc.original_filename}
                         </p>
-                        <p className="text-xs text-muted">{formatFileSize(doc.file_size)}</p>
+                        <p className="text-[10px] text-muted font-mono">{formatFileSize(doc.file_size)}</p>
                       </div>
                     </button>
                   )
@@ -303,20 +361,21 @@ export function Chat() {
             )}
           </div>
 
-          {/* Chat messages area */}
-          <div className="flex flex-1 flex-col rounded-2xl border border-line bg-canvas/40">
+          {/* Conversation & Input Box Container */}
+          <div className="flex flex-1 flex-col rounded-2xl border border-line bg-surface/70 backdrop-blur-xl shadow-2xl min-h-[460px]">
+            {/* Messages Area */}
             <div className="flex flex-1 flex-col overflow-y-auto p-4 md:p-6">
               {isLoadingSession ? (
-                <div className="flex flex-1 items-center justify-center py-16">
+                <div className="flex flex-1 items-center justify-center py-20">
                   <div className="flex flex-col items-center gap-3 text-secondary">
-                    <Loader2 size={28} className="animate-spin text-accent" />
-                    <p className="text-sm">Loading conversation…</p>
+                    <Loader2 size={32} className="animate-spin text-accent drop-shadow-[0_0_8px_rgba(255,30,30,0.8)]" />
+                    <p className="text-sm font-medium">Restoring conversation session...</p>
                   </div>
                 </div>
               ) : messages.length === 0 ? (
                 <EmptyChatState />
               ) : (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-2">
                   {messages.map((msg, index) => (
                     <ChatMessage
                       key={msg.id ?? index}
@@ -326,30 +385,34 @@ export function Chat() {
                     />
                   ))}
 
-                  {/* Animated thinking indicator */}
+                  {/* Thinking Indicator */}
                   {isSending && (
                     <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="flex w-full gap-4 py-3"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex w-full gap-3 py-3"
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-accent">
-                        <Loader2 size={15} className="animate-spin" />
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/20 border border-accent/40 text-accent shadow-[0_0_15px_rgba(229,9,20,0.35)]">
+                        <Loader2 size={18} className="animate-spin text-accent" />
                       </div>
-                      <div className="flex items-center rounded-2xl border border-line-luminous bg-canvas/60 px-4 py-3 text-sm text-secondary">
-                        Thinking about your documents…
+                      <div className="flex items-center gap-2 rounded-2xl border border-line-luminous bg-surface/85 backdrop-blur-md px-4 py-3 text-xs text-secondary shadow-lg">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+                        </span>
+                        <span>Retrieving chunks &amp; generating grounded answer...</span>
                       </div>
                     </motion.div>
                   )}
 
-                  {/* Inline error */}
+                  {/* Inline Error */}
                   {sendError && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       className="flex w-full justify-center py-2"
                     >
-                      <div className="flex items-center gap-2 rounded-xl border border-status-down/40 bg-status-down/10 px-4 py-2 text-sm text-status-down">
+                      <div className="flex items-center gap-2 rounded-xl border border-status-down/40 bg-status-down/10 px-4 py-2.5 text-xs text-status-down shadow-md">
                         <AlertCircle size={15} />
                         {sendError}
                       </div>
@@ -359,8 +422,8 @@ export function Chat() {
               )}
             </div>
 
-            {/* Input bar */}
-            <div className="border-t border-line bg-surface/50 p-4 md:p-5 rounded-b-2xl">
+            {/* Input Bar */}
+            <div className="border-t border-line/70 bg-canvas/60 backdrop-blur-2xl p-4 md:p-5 rounded-b-2xl">
               <ChatInput onSend={handleSend} disabled={inputDisabled} />
             </div>
           </div>

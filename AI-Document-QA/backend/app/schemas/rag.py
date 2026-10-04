@@ -38,6 +38,9 @@ class RAGQuestionRequest(BaseModel):
 class RAGSource(BaseModel):
     """One retrieved document chunk with its similarity score."""
     document_id: int
+    # Resolved from the Document table at response time so filenames never
+    # need to be duplicated inside the FAISS metadata store.
+    document_name: Optional[str] = None
     page_number: int
     chunk_index: int
     text: str

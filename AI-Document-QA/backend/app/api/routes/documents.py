@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 import shutil
@@ -9,10 +10,13 @@ from app.schemas.document import DocumentResponse, DocumentTextResponse, Documen
 from app.services.pdf_extractor import extract_text_from_pdf
 from app.services.text_chunker import chunk_document_pages
 from app.services.document_indexing_service import index_document
-from app.api.deps import get_current_dev_user
+from app.services.document_vector_store import document_vector_store
+from app.api.deps import get_current_user
 from app.models.user import User
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
@@ -24,7 +28,7 @@ UPLOAD_DIR = os.path.join(BASE_DIR, "documents")
 def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     # 1. Validate extension and content type
     if not file.filename.lower().endswith(".pdf"):
@@ -109,9 +113,9 @@ def upload_document(
 @router.get("/", response_model=list[DocumentResponse])
 def get_documents(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
-    # Return documents owned by the current dev user, newest first
+    # Return documents owned by the authenticated user, newest first
     docs = db.query(Document).filter(Document.owner_id == current_user.id).order_by(Document.upload_timestamp.desc()).all()
     return docs
 
@@ -119,7 +123,7 @@ def get_documents(
 def get_document(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     # Ensure the user can only fetch their own document
     doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
@@ -131,7 +135,7 @@ def get_document(
 def delete_document(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     # Find document safely checking ownership
     doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
@@ -147,7 +151,25 @@ def delete_document(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete database record.")
-        
+
+    # Remove this document's vectors from the persistent FAISS store as part
+    # of the same delete. The database row is the authoritative record and is
+    # already gone, so ordering it first means a failure here can never leave
+    # an obviously inconsistent state: the store itself stays valid (index and
+    # metadata are swapped together, and save() publishes both atomically),
+    # and at worst a few unreachable stale vectors remain for a document that
+    # no longer exists. The delete therefore still completes normally.
+    try:
+        removed = document_vector_store.remove_document(document_id)
+        logger.info(
+            f"Removed {removed} vector(s) from the store for deleted document {document_id}."
+        )
+    except Exception as exc:
+        logger.error(
+            f"Document {document_id} was deleted, but its vectors could not be "
+            f"removed from the vector store: {exc}"
+        )
+
     # Delete the physical file safely
     if os.path.exists(file_path):
         try:
@@ -163,7 +185,7 @@ def delete_document(
 def get_document_text(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     # Ensure the user can only fetch their own document
     doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()
@@ -192,7 +214,7 @@ def get_document_text(
 def get_document_chunks(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_dev_user)
+    current_user: User = Depends(get_current_user)
 ):
     # Ensure the user can only fetch their own document
     doc = db.query(Document).filter(Document.id == document_id, Document.owner_id == current_user.id).first()

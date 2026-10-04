@@ -1,37 +1,62 @@
 import { useState } from 'react'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import { AuthPage } from './components/auth/AuthPage'
 import { AppShell } from './components/layout/AppShell'
-import { Sidebar } from './components/layout/Sidebar'
+import { TopNav } from './components/layout/TopNav'
 import { Dashboard } from './pages/Dashboard'
 import { Chat } from './pages/Chat'
 import { useBackendHealth } from './hooks/useBackendHealth'
 
-function App() {
+/**
+ * App renderer:
+ * Renders TopNav + Dashboard/Chat when authenticated,
+ * otherwise renders the AuthPage.
+ */
+function AppRenderer() {
+  const { user, isAuthenticated, isLoading, logout } = useAuth()
   const [activeItem, setActiveItem] = useState('dashboard')
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const { status } = useBackendHealth()
 
-  const sidebar = {
-    mobileOpen: mobileNavOpen,
-    onOpenMobile: () => setMobileNavOpen(true),
-    onCloseMobile: () => setMobileNavOpen(false),
-    element: (
-      <Sidebar
-        activeItem={activeItem}
-        onNavigate={(id) => {
-          setActiveItem(id)
-          setMobileNavOpen(false)
-        }}
-        mobileOpen={mobileNavOpen}
-        onCloseMobile={() => setMobileNavOpen(false)}
-        status={status}
-      />
-    ),
+  // Render auth page loading state while session is being verified
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      </div>
+    )
   }
 
+  // Unauthenticated: show login/register page
+  if (!isAuthenticated) {
+    return <AuthPage />
+  }
+
+  const navbar = (
+    <TopNav
+      activeItem={activeItem}
+      onNavigate={(id) => setActiveItem(id)}
+      user={user}
+      onLogout={logout}
+      status={status}
+    />
+  )
+
   return (
-    <AppShell sidebar={sidebar} status={status}>
-      {activeItem === 'chats' ? <Chat /> : <Dashboard status={status} />}
+    <AppShell navbar={navbar}>
+      {activeItem === 'chats' ? (
+        <Chat />
+      ) : (
+        <Dashboard status={status} />
+      )}
     </AppShell>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppRenderer />
+    </AuthProvider>
   )
 }
 

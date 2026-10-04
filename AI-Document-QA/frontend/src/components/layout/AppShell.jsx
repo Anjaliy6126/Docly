@@ -1,42 +1,24 @@
-import { Menu } from 'lucide-react'
-import { cn } from '../../lib/utils'
+import { BackgroundEffects } from './BackgroundEffects'
 
 /**
- * Application shell: sidebar (left) + main workspace (center).
- * Below the md breakpoint the sidebar becomes a slide-over panel
- * controlled by a hamburger button in the top bar.
+ * Modern Top-Navigation Application Shell:
+ * - 3D Atmospheric background (z-0)
+ * - Sticky Top Navigation Bar (z-40)
+ * - Spacious, balanced centered main workspace (max-w-7xl)
  */
-export function AppShell({ sidebar, children }) {
-  const { mobileOpen, onOpenMobile } = sidebar
-
+export function AppShell({ navbar, children }) {
   return (
-    <div className="flex min-h-screen bg-canvas text-foreground">
-      {sidebar.element}
+    <div className="relative min-h-screen bg-canvas text-foreground flex flex-col selection:bg-accent/30 overflow-x-hidden">
+      {/* 3D Atmospheric Background */}
+      <BackgroundEffects />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top bar — mobile only */}
-        <header
-          className={cn(
-            'flex items-center gap-3 border-b border-line bg-surface px-4 py-3 md:hidden',
-            mobileOpen && 'opacity-50',
-          )}
-        >
-          <button
-            type="button"
-            className="rounded-lg border border-line bg-raised p-2 text-secondary hover:text-foreground"
-            onClick={onOpenMobile}
-            aria-label="Open navigation"
-          >
-            <Menu size={18} aria-hidden="true" />
-          </button>
-          <span className="font-heading text-sm font-bold">Campus Intelligence</span>
-        </header>
+      {/* Sticky Top Navigation Bar */}
+      {navbar}
 
-        {/* Main workspace */}
-        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8 lg:px-12">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
-        </main>
-      </div>
+      {/* Main Workspace (Full width balanced container) */}
+      <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        {children}
+      </main>
     </div>
   )
 }

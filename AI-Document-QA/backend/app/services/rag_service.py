@@ -339,3 +339,28 @@ def answer_question(
     """
     vector_store = build_vector_store(chunks)
     return answer_question_from_store(question, vector_store, top_k=top_k)
+
+
+def resolve_document_names(
+    sources: List[Dict[str, Any]],
+    name_map: Dict[int, str],
+) -> None:
+    """
+    Stamps document_name onto each source dict in-place using a pre-fetched
+    id→filename mapping.
+
+    Why in-place mutation:
+    The caller already has the list; creating a copy would be wasteful and
+    the sources are not shared mutable state.
+
+    Why the mapping comes from the caller:
+    This function does not know about SQLAlchemy sessions. The caller fetches
+    all needed Document rows in ONE query (no N+1) and passes the resulting
+    dict here. This keeps the RAG pipeline free of DB dependencies.
+
+    If a document_id is not found in name_map (e.g. the document was deleted
+    after indexing), document_name is left as None — the schema accepts Optional.
+    """
+    for source in sources:
+        doc_id = source.get("document_id")
+        source["document_name"] = name_map.get(doc_id)  # None if not found

@@ -230,7 +230,82 @@ class FAISSVectorStore:
         # behavior, unchanged).
         if self.persist_directory is not None:
             self.save()
-    
+
+    def remove_document(self, document_id: int) -> int:
+        """
+        Removes every vector (and its metadata) belonging to document_id.
+
+        Why a rebuild instead of FAISS removal IDs:
+        The index is built with plain add(), so vectors live at sequential
+        positions with no IDs and self.metadata[i] is positionally locked to
+        vector i. Filtering BOTH structures with the same keep-list and
+        rebuilding the flat index keeps that 1:1 contract exact, preserves
+        the relative order of every surviving vector, and changes nothing
+        about how chunks are added or searched.
+
+        Surviving vectors are read back with reconstruct_n(), which returns
+        the already L2-normalised float32 values that were stored, so
+        re-adding them leaves similarity scores unchanged.
+
+        Returns the number of vectors removed. 0 is a normal, successful
+        outcome (the document has no vectors, or the store is empty) — no
+        exception is raised and nothing needs persisting.
+
+        Persistence: with a persist_directory the updated index and metadata
+        are written through save(), which stages both files as .tmp first and
+        swaps them in with os.replace(), so a partially written file is never
+        published. If the process dies between the two replaces, load()
+        detects the mismatched pair and refuses to load rather than serving
+        inconsistent data.
+        """
+        if not isinstance(document_id, int):
+            raise ValueError("document_id must be an integer.")
+        if document_id < 1:
+            raise ValueError("document_id must be a positive integer.")
+
+        # Empty store: nothing to remove. Deletion still succeeds normally.
+        if self.index.ntotal == 0 or not self.metadata:
+            return 0
+
+        # Defensive: never rebuild from structures that already disagree.
+        if len(self.metadata) != self.index.ntotal:
+            raise RuntimeError(
+                f"Vector store is out of sync: index has {self.index.ntotal} "
+                f"vectors but metadata has {len(self.metadata)} entries. "
+                "Refusing to remove vectors from an inconsistent store."
+            )
+
+        keep_positions = [
+            i for i, entry in enumerate(self.metadata)
+            if entry.get("document_id") != document_id
+        ]
+        removed = len(self.metadata) - len(keep_positions)
+        if removed == 0:
+            # Document is not in the store — normal success, no rewrite needed.
+            return 0
+
+        new_index = faiss.IndexFlatIP(self.dimension)
+        if keep_positions:
+            all_vectors = self.index.reconstruct_n(0, self.index.ntotal)
+            survivors = np.ascontiguousarray(
+                all_vectors[keep_positions], dtype=np.float32
+            )
+            new_index.add(survivors)
+
+        # Swap index and metadata together so index i <-> metadata[i] never
+        # breaks, even if persistence below were to fail.
+        self.index = new_index
+        self.metadata = [self.metadata[i] for i in keep_positions]
+
+        if self.persist_directory is not None:
+            self.save()
+
+        logger.info(
+            f"Removed {removed} vector(s) for document {document_id}; "
+            f"{self.index.ntotal} vector(s) remain."
+        )
+        return removed
+
     def search(
         self,
         query_embedding: List[float],
