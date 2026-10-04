@@ -4,13 +4,14 @@ import { AuthPage } from './components/auth/AuthPage'
 import { AppShell } from './components/layout/AppShell'
 import { TopNav } from './components/layout/TopNav'
 import { Dashboard } from './pages/Dashboard'
+import { Documents } from './pages/Documents'
 import { Chat } from './pages/Chat'
 import { useBackendHealth } from './hooks/useBackendHealth'
 
 /**
  * App renderer:
- * Renders TopNav + Dashboard/Chat when authenticated,
- * otherwise renders the AuthPage.
+ * Renders TopNav + the active page (Dashboard / Documents / Chat) when
+ * authenticated, otherwise renders the AuthPage.
  */
 function AppRenderer() {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
@@ -41,13 +42,15 @@ function AppRenderer() {
     />
   )
 
+  function renderPage() {
+    if (activeItem === 'chats') return <Chat />
+    if (activeItem === 'documents') return <Documents />
+    return <Dashboard status={status} onNavigate={setActiveItem} />
+  }
+
   return (
     <AppShell navbar={navbar}>
-      {activeItem === 'chats' ? (
-        <Chat />
-      ) : (
-        <Dashboard status={status} />
-      )}
+      {renderPage()}
     </AppShell>
   )
 }
