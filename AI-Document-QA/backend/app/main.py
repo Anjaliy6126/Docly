@@ -16,10 +16,24 @@ app = FastAPI(
     description="Backend API for the RAG-based document assistant."
 )
 
-# CORS Middleware setup to allow frontend to communicate with backend
+# CORS Middleware setup to allow frontend to communicate with backend.
+# Origins come from the CORS_ORIGINS environment variable as a comma-separated
+# list; local development defaults to the Vite dev server with no env setup.
+# Never use "*" here: allow_credentials=True requires explicit origins.
+import os
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Default Vite React port
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

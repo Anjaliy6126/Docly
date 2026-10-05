@@ -2,8 +2,13 @@
  * Centralized API configuration for the FastAPI backend.
  * All backend calls go through this module so the base URL
  * and authentication headers are defined and managed centrally.
+ *
+ * The base URL comes from the VITE_API_URL environment variable when set
+ * (e.g. production builds on Vercel); local development falls back to the
+ * default FastAPI port with no .env file required.
  */
-export const API_BASE_URL = 'http://127.0.0.1:8000'
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 /**
  * Authentication storage keys for localStorage.
