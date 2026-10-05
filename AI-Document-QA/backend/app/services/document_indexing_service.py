@@ -6,14 +6,12 @@ from app.services.pdf_extractor import extract_text_from_pdf
 from app.services.text_chunker import chunk_document_pages
 from app.services.chunk_embedding_service import embed_chunks
 from app.services.document_vector_store import document_vector_store
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Same upload directory as app/api/routes/documents.py:
-# this file lives at backend/app/services/, so THREE dirname() steps
-# reach backend/, where the shared documents/ upload folder lives.
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-UPLOAD_DIR = os.path.join(BASE_DIR, "documents")
+# Centralized documents upload directory
+UPLOAD_DIR = settings.DOCUMENTS_DIR
 
 def resolve_stored_pdf_path(stored_filename: str) -> str:
     """

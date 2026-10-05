@@ -54,3 +54,12 @@ def health_check_db(db: Session = Depends(get_db)):
             raise HTTPException(status_code=500, detail="Database returned unexpected result.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+

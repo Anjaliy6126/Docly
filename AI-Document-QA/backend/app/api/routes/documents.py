@@ -13,6 +13,7 @@ from app.services.document_indexing_service import index_document
 from app.services.document_vector_store import document_vector_store
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -20,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
-# Path to backend/documents
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-UPLOAD_DIR = os.path.join(BASE_DIR, "documents")
+# Centralized documents storage directory
+UPLOAD_DIR = settings.DOCUMENTS_DIR
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 def upload_document(

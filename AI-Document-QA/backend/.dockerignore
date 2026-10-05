@@ -1,0 +1,40 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite / test databases
+*.db
+*.sqlite
+*.sqlite3
+test.db
+
+# Local uploads and vector store indexes from dev runs
+documents/
+vector_store/
+
+# Git and IDE metadata
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Logs and temp files
+*.log
+scratch/
+tmp/

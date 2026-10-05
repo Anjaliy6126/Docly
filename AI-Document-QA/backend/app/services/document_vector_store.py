@@ -20,13 +20,12 @@ import logging
 import os
 
 from app.services.vector_store import FAISSVectorStore
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# This file lives at backend/app/services/, so three dirname() steps reach
-# backend/ — the persistent store lives in backend/vector_store/ (gitignored).
-BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-VECTOR_STORE_DIR = os.path.join(BACKEND_DIR, "vector_store")
+# Centralized vector store persistence directory
+VECTOR_STORE_DIR = settings.VECTOR_STORE_DIR
 
 def _create_persistent_store() -> FAISSVectorStore:
     """
